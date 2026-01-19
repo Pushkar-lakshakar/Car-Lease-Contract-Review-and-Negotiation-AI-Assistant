@@ -1,0 +1,39 @@
+{
+    "metadata": {
+        "original_pdf": "CAR LEASE AGREEMENT.pdf",
+        "generated_at": "2026-01-19T18:12:01.972080",
+        "vehicle_detected": "MP07CK8399"
+    },
+    "ocr_text_file": "CAR LEASE AGREEMENT.txt",
+    "sla_extraction": {
+        "Lessor Name": "Michael Roberts",
+        "Lessee Name": "Emily Carter",
+        "Vehicle Model": "Corolla Altis (Indian market equivalent of Corolla XLE)",
+        "Monthly Rental": "%41,500 (Rupees Forty-One Thousand Five Hundred Only)",
+        "Tenure": "36 months",
+        "Mileage Cap": "72,000 km (for the 3-year lease)",
+        "Mileage Rate": "%25 per km",
+        "Termination Penalty": "%1,00,000",
+        "Purchase Price": "%16,00,000 (Rupees Sixteen Lakhs)",
+        "Security Deposit": "%76,500 (Approx. 2 months' rent equivalent)",
+        "Maintenance": "Lessee is responsible for regular maintenance (oil changes, tire rotations, brake checks). For minor repairs (< %20,000), Lessee covers full cost. For major repairs (> %20,000), Lessor covers 50%, Lessee covers remainder. Lessee must use Lessor-approved authorized service centers.",
+        "Taxes": "Not Available",
+        "Dispute Resolution": "First, amicable negotiation. If failed, arbitration by a sole arbitrator in accordance with the Arbitration and Conciliation Act, 1996, with the seat in Mumbai, India. If arbitration not applicable, disputes resolved in courts of Mumbai.",
+        "Return Conditions": "Upon termination, vehicle must be returned in a condition consistent with normal wear and tear. Security deposit may be used to cover unpaid rents, fees, or repairs not considered regular wear and tear."
+    },
+    "vehicle_details": {
+        "status": "vehicle_not_found",
+        "error": "Vehicle number not found in RTO database",
+        "result": {}
+    },
+    "risk_analysis": {
+        "risk_level": "Moderate Risk",
+        "risk_score": 6,
+        "flags": [
+            "Vehicle number not found in national RTO database"
+        ],
+        "vehicle_number": null,
+        "owner_name": null,
+        "model": null
+    }
+}
