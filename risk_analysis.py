@@ -1,8 +1,6 @@
 import datetime
 
-# -------------------------------------------------------
 # Helpers
-# -------------------------------------------------------
 
 def safe_lower(v):
     return v.lower() if isinstance(v, str) else ""
@@ -20,9 +18,7 @@ def safe_date(v):
         return None
 
 
-# -------------------------------------------------------
-# Main Risk Analysis
-# -------------------------------------------------------
+# MAIN RISK ANALYSIS
 
 def analyze_risk(sla: dict, vehicle: dict):
     risk_flags = []
@@ -31,11 +27,29 @@ def analyze_risk(sla: dict, vehicle: dict):
     sla = sla or {}
     vehicle = vehicle or {}
 
+    status = vehicle.get("status")
     v = vehicle.get("result", {})
 
-    # ---------------------------------------------------
-    # 1. SLA Checks
-    # ---------------------------------------------------
+    # 0. VEHICLE VALIDITY CHECKS
+
+    if status == "invalid_vehicle_number":
+        risk_flags.append("Detected vehicle number is invalid or not a real license plate")
+        score += 7
+        return _final(score, risk_flags, v)
+
+    if status == "vehicle_not_found":
+        risk_flags.append("Vehicle number not found in national RTO database")
+        score += 6
+        return _final(score, risk_flags, v)
+
+    if status != "success":
+        # Any other failure
+        risk_flags.append("Unable to verify vehicle information")
+        score += 5
+        return _final(score, risk_flags, v)
+
+
+    # 1. SLA CHECKS
 
     rent = safe_int(sla.get("Monthly Rental"))
     if rent and rent > 100000:
@@ -51,8 +65,8 @@ def analyze_risk(sla: dict, vehicle: dict):
         risk_flags.append("Mileage cap missing")
         score += 1
 
-    pen = safe_int(sla.get("Termination Penalty"))
-    if pen and pen > 100000:
+    penalty = safe_int(sla.get("Termination Penalty"))
+    if penalty and penalty > 100000:
         risk_flags.append("Very high termination penalty")
         score += 1
 
@@ -70,52 +84,57 @@ def analyze_risk(sla: dict, vehicle: dict):
         score += 1
 
 
-    # ---------------------------------------------------
-    # 2. Vehicle API Checks
-    # ---------------------------------------------------
+    # 2. VEHICLE API CHECKS
 
+    # RC status
     if safe_lower(v.get("status")) != "active":
         risk_flags.append("Vehicle RC not active")
         score += 2
 
+    # Blacklist
     if safe_lower(v.get("blacklist_status")) not in ["na", "none", ""]:
         risk_flags.append("Vehicle appears in blacklist")
         score += 3
 
+    # Insurance
     ins = safe_date(v.get("vehicle_insurance_details", {}).get("insurance_upto"))
     if not ins:
         risk_flags.append("Insurance expiry unknown")
         score += 1
-    else:
-        if ins < datetime.date.today():
-            risk_flags.append("Insurance expired")
-            score += 3
+    elif ins < datetime.date.today():
+        risk_flags.append("Insurance expired")
+        score += 3
 
+    # Fitness
     fit = safe_date(v.get("fit_upto"))
     if fit and fit < datetime.date.today():
         risk_flags.append("Vehicle fitness expired")
         score += 3
 
+    # Registration date
     if not safe_date(v.get("reg_date")):
-        risk_flags.append("Registration date invalid/missing")
+        risk_flags.append("Registration date invalid or missing")
         score += 1
 
 
-    # ---------------------------------------------------
-    # 3. Final Categorization
-    # ---------------------------------------------------
+    # 3. Return final structured output
+    return _final(score, risk_flags, v)
 
+
+# FINALIZER (small helper)
+
+def _final(score, flags, v):
     if score <= 2:
-        risk_level = "Low Risk"
+        level = "Low Risk"
     elif score <= 6:
-        risk_level = "Moderate Risk"
+        level = "Moderate Risk"
     else:
-        risk_level = "High Risk"
+        level = "High Risk"
 
     return {
-        "risk_level": risk_level,
+        "risk_level": level,
         "risk_score": score,
-        "flags": risk_flags,
+        "flags": flags,
         "vehicle_number": v.get("reg_no"),
         "owner_name": v.get("owner_name"),
         "model": v.get("model")
