@@ -1,0 +1,5 @@
+{
+    "status": "vehicle_not_found",
+    "error": "Vehicle number not found in RTO database",
+    "result": {}
+}
