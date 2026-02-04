@@ -34,7 +34,3 @@ def run_ocr(pdf_bytes: bytes, original_filename: str) -> str:
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(f"OCR_ERROR: {str(e)}")
         return txt_path
-
-        return txt_path
-
-
