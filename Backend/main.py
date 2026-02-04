@@ -19,6 +19,9 @@ from Backend.gemini import (
 )
 from Backend.vehicle_lookup import get_vehicle_details
 from Backend.risk_analysis import quick_risk_assessment
+from Backend.database import SessionLocal
+from sqlalchemy import text
+
 
 
 app = FastAPI(title="Enhanced Car Lease Analyzer", version="3.0")
@@ -171,12 +174,15 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
                 engine_str = "Not specified"
 
             vehicle_specs = {
+                "vin": vehicle_data.get("vin", "Not found"),  # Added VIN
                 "make": basic_info.get("make", "Not found"),
                 "model": basic_info.get("model", "Not found"),
-                "make_year": basic_info.get("year", "Not found"),  # Changed from "year" to "make_year"
+                "year": basic_info.get("year", "Not found"),  # Changed back to year for consistency or keep layout
+                "make_year": basic_info.get("year", "Not found"),
                 "fuel_type": basic_info.get("fuel_type", "Not specified"),
                 "transmission": basic_info.get("transmission_type", "Not specified"),
                 "engine": engine_str,
+                "engine_size": engine_info.get("engine_size_liters", "Not specified"), # Added engine_size
                 "horsepower": engine_info.get("horsepower_hp", "Not specified"),
                 "body_style": basic_info.get("body_style", "Not specified"),
                 "driven_wheels": basic_info.get("driven_wheels", "Not specified"),
@@ -224,12 +230,14 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
                     "start_date": contract_terms.get("Lease Start Date"),
                     "end_date": contract_terms.get("Lease End Date"),
                     "purchase_option": contract_terms.get("Purchase Option Price"),
-                    "residual_value": contract_terms.get("Residual Value")
+                    "residual_value": contract_terms.get("Residual Value"),
+                    "payment_due_day": contract_terms.get("Payment Due Day")
                 },
                 "usage": {
                     "annual_mileage": contract_terms.get("Annual Mileage Limit"),
                     "excess_charge": contract_terms.get("Excess Mileage Charge"),
-                    "total_mileage": contract_terms.get("Total Allowed Mileage")
+                    "total_mileage": contract_terms.get("Total Allowed Mileage"),
+                    "permitted_use": contract_terms.get("Permitted Use")
                 },
                 "insurance_maintenance": {
                     "insurance_requirements": contract_terms.get("Insurance Requirements"),
@@ -286,6 +294,59 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
             # 5. RECOMMENDATIONS
             "recommendations": generate_recommendations(analysis, contract_terms, vehicle_data)
         }
+
+        
+        db = SessionLocal()
+        lease_id = str(uuid.uuid4())
+
+        try:
+            # Save main JSON output
+            db.execute(text("""
+                INSERT INTO lease_documents 
+                (id, filename, request_id, full_output, fairness_score, fairness_level, risk_level)
+                VALUES (:id, :filename, :request_id, :full_output, :score, :level, :risk)
+            """), {
+                "id": lease_id,
+                "filename": filename,
+                "request_id": request_id,
+                "full_output": json.dumps(response),
+                "score": analysis.get("contract_fairness_score"),
+                "level": analysis.get("contract_fairness_level"),
+                "risk": analysis.get("risk_level")
+            })
+
+            # Save OCR text
+            db.execute(text("""
+                INSERT INTO lease_ocr_text 
+                (id, lease_id, extracted_text)
+                VALUES (:id, :lease_id, :text)
+            """), {
+                "id": str(uuid.uuid4()),
+                "lease_id": lease_id,
+                "text": ocr_text
+            })
+
+            # Save VIN API cache if successful
+            if vehicle_data.get("status") == "success":
+                db.execute(text("""
+                    INSERT INTO vehicle_api_cache (vin, api_response)
+                    VALUES (:vin, :response)
+                    ON CONFLICT (vin) DO UPDATE
+                    SET api_response = EXCLUDED.api_response,
+                        cached_at = CURRENT_TIMESTAMP
+                """), {
+                    "vin": vin,
+                    "response": json.dumps(vehicle_data)
+                })
+
+            db.commit()
+
+        except Exception as db_error:
+            print(f"Database save error: {str(db_error)}")
+            db.rollback()
+
+        finally:
+            db.close()
         
         # 6. Save user output
         base_name = os.path.splitext(filename)[0]
@@ -457,8 +518,29 @@ class ChatRequest(BaseModel):
     message: str
     context: dict | None = None
 
+@app.get("/test-gemini")
+async def test_gemini():
+    """Debug endpoint to test if Gemini is working"""
+    if not GEMINI_AVAILABLE:
+        return {"status": "error", "message": "Gemini not available"}
+    
+    try:
+        from google.genai import types
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=["Say hello in one word"],
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=50)
+        )
+        return {"status": "success", "reply": response.text}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
 @app.post("/chat")
 async def chat_with_gemini(request: ChatRequest):
+    print(f"Chat endpoint called with message: {request.message}")
+    
     if not GEMINI_AVAILABLE:
         raise HTTPException(status_code=500, detail="Gemini not configured")
 
@@ -466,28 +548,62 @@ async def chat_with_gemini(request: ChatRequest):
         user_message = request.message
         context = request.context or {}
 
-        # Optional: include contract summary in prompt
-        context_text = json.dumps(context, indent=2) if context else ""
+        # Build concise context string instead of dumping entire JSON
+        context_parts = []
+        
+        sla = context.get("sla_fields", {})
+        if sla:
+            parties = sla.get("parties", {})
+            vehicle = sla.get("vehicle", {})
+            financial = sla.get("financial", {})
+            usage = sla.get("usage", {})
+            
+            if parties:
+                context_parts.append(f"Lessor: {parties.get('lessor_name', 'N/A')}")
+                context_parts.append(f"Lessee: {parties.get('lessee_name', 'N/A')}")
+            if vehicle:
+                context_parts.append(f"Vehicle: {vehicle.get('make', '')} {vehicle.get('model', '')} ({vehicle.get('year', '')})")
+                context_parts.append(f"VIN: {vehicle.get('vin', 'N/A')}")
+            if financial:
+                context_parts.append(f"Monthly Rental: {financial.get('monthly_rental', 'N/A')}")
+                context_parts.append(f"Deposit: {financial.get('security_deposit', 'N/A')}")
+                context_parts.append(f"Lease Term: {financial.get('lease_term', 'N/A')}")
+            if usage:
+                context_parts.append(f"Mileage Limit: {usage.get('annual_mileage', 'N/A')}")
+        
+        risk = context.get("risk_analysis", {})
+        if risk:
+            context_parts.append(f"Fairness Score: {risk.get('contract_fairness_score', 'N/A')}/100")
+            context_parts.append(f"Risk Level: {risk.get('risk_level', 'N/A')}")
+        
+        issues = context.get("issues", {})
+        red_flags = issues.get("red_flags", [])
+        if red_flags:
+            context_parts.append("Red Flags: " + "; ".join(str(f) for f in red_flags[:5]))
+        
+        recommendations = context.get("recommendations", [])
+        if recommendations:
+            context_parts.append("Recommendations: " + "; ".join(str(r) for r in recommendations[:3]))
+        
+        context_text = "\n".join(context_parts) if context_parts else "No contract data available."
 
-        prompt = f"""
-You are a car lease contract assistant.
+        prompt = f"""You are a helpful car lease contract assistant. Answer based on the contract data.
 
-Contract Data:
+CONTRACT DATA:
 {context_text}
 
-User Question:
-{user_message}
+USER: {user_message}
 
-Give clear and concise answer.
-"""
+Give a clear, helpful answer. If info is not in the data, say so."""
 
+        from google.genai import types
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=[prompt],
-            generation_config={
-                "temperature": 0.3,
-                "max_output_tokens": 800
-            }
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=800
+            )
         )
 
         return {
@@ -496,6 +612,9 @@ Give clear and concise answer.
         }
 
     except Exception as e:
+        import traceback
+        print(f"Chat error: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
