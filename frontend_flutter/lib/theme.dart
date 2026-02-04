@@ -4,22 +4,36 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      scaffoldBackgroundColor: const Color(0xFFF1F5F9),
+      scaffoldBackgroundColor: const Color(0xFFF8FAFC), 
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF1E3A8A),
+        seedColor: const Color(0xFF6366F1), 
+        primary: const Color(0xFF4F46E5),
+        secondary: const Color(0xFFEC4899), 
+        surface: Colors.white,
       ),
-      cardTheme: const CardThemeData(
-        elevation: 2,
-        shadowColor: Colors.black12,
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(16)),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.grey.withOpacity(0.1)),
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
+      inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
+        fillColor: Colors.grey.shade50,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.grey.withOpacity(0.1)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2),
         ),
       ),
     );
