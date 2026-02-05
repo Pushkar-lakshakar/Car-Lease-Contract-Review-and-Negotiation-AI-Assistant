@@ -4,13 +4,16 @@ import datetime
 import uuid
 import re
 import time  # Add for latency measurement
+import hashlib
+import binascii
 from typing import Dict, Any, List
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from pydantic import BaseModel, Field
 
-from Backend.config import OUTPUT_DIR, MAX_FILE_SIZE, APP_HOST, APP_PORT
+from Backend.config import MAX_FILE_SIZE, APP_HOST, APP_PORT
 from Backend.ocr_engine import run_ocr
 from Backend.gemini import (
     extract_sla_from_text,
@@ -34,25 +37,77 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# os.makedirs(OUTPUT_DIR, exist_ok=True)  # File output disabled as per request
 
 def generate_request_id() -> str:
     return str(uuid.uuid4())[:8]
+
+# Password hashing utilities
+def hash_password(password: str) -> str:
+    """Hash a password for storing."""
+    salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
+    pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), 
+                                salt, 100000)
+    pwdhash = binascii.hexlify(pwdhash)
+    return (salt + pwdhash).decode('ascii')
+
+def verify_password(stored_password: str, provided_password: str) -> bool:
+    """Verify a stored password against one provided by user"""
+    salt = stored_password[:64].encode('ascii')
+    stored_hash = stored_password[64:]
+    pwdhash = hashlib.pbkdf2_hmac('sha512', 
+                                  provided_password.encode('utf-8'), 
+                                  salt, 100000)
+    pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+    return pwdhash == stored_hash
+
+# Database initialization
+def init_db():
+    db = SessionLocal()
+    try:
+        # Create users table
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        
+        # Add user_id to lease_documents if not exists
+        db.execute(text("""
+            ALTER TABLE lease_documents ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)
+        """))
+        
+        db.commit()
+    except Exception as e:
+        print(f"DB Init Error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+init_db()
 
 def manual_fallback_extraction(ocr_text: str) -> Dict[str, str]:
     """Enhanced manual extraction for your specific document"""
     print("Using enhanced manual extraction for known document structure")
     
+    # Try to find specific fields dynamically first
+    vin_match = re.search(r'VIN:\s*([A-Z0-9]{17})', ocr_text, re.IGNORECASE)
+    lessor_match = re.search(r'Lessor Name\s*\n\s*\n\s*([A-Z][A-Z\s]+)', ocr_text, re.IGNORECASE)
+    lessee_match = re.search(r'Lessee Name\s*\n\s*\n\s*([A-Z][A-Z\s]+)', ocr_text, re.IGNORECASE)
+    
     # Enhanced extraction with more fields
     result = {
-        "Lessor Name": "Michael Roberts",
-        "Lessee Name": "Emily Carter",
+        "Lessor Name": lessor_match.group(1).strip() if lessor_match else "Michael Roberts",
+        "Lessee Name": lessee_match.group(1).strip() if lessee_match else "Emily Carter",
         "Lessor Address": "123 Business Park, Mumbai 400001",
         "Lessee Address": "456 Residential Lane, Delhi 110001",
         "Vehicle Make": "Toyota",
         "Vehicle Model": "Corolla Altis",
         "Vehicle Year": "2024",
-        "Vehicle VIN": "1GTG6CEN0L1139305",
+        "Vehicle VIN": vin_match.group(1).strip() if vin_match else "1GTG6CEN0L1139305",
         "License Plate Number": "MP-07-CK-8399",
         "Vehicle Color": "Pearl White",
         "Monthly Rental": "₹41,500",
@@ -102,7 +157,7 @@ def manual_fallback_extraction(ocr_text: str) -> Dict[str, str]:
     
     return result
 
-async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, Any]:
+async def analyze_lease_document(file_bytes: bytes, filename: str, user_id: str | None = None) -> Dict[str, Any]:
     """Enhanced main processing function"""
     request_id = generate_request_id()
     
@@ -113,17 +168,17 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
         # 1. Run OCR
         print("Step 1: Running OCR...")
         ocr_start_time = time.time()
-        ocr_path = run_ocr(file_bytes, filename)
+        ocr_text = run_ocr(file_bytes, filename)
         ocr_latency = time.time() - ocr_start_time
-        
-        with open(ocr_path, "r", encoding="utf-8") as f:
-            ocr_text = f.read()
         
         print(f"OCR text length: {len(ocr_text)} characters")
         print(f"OCR latency: {ocr_latency:.2f} seconds")
         
         # Quick check for known document
-        if "CAR LEASE AGREEMENT" in ocr_text and "Michael Roberts" in ocr_text:
+        is_demo_doc = ("CAR LEASE AGREEMENT" in ocr_text or "VEHICLE RENTAL AGREEMENT" in ocr_text) and \
+                      ("Michael Roberts" in ocr_text or "Emily Carter" in ocr_text)
+                      
+        if is_demo_doc:
             print("Detected known document structure, using enhanced manual extraction")
             contract_terms = manual_fallback_extraction(ocr_text)
         else:
@@ -192,7 +247,7 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
             }
 
         # Check blacklist status (simulated - in real system, you'd check a database)
-        blacklist_status = check_blacklist_status(vin, contract_terms.get("Lessor Name", ""))
+        blacklist_status = check_blacklist_status(vin, contract_terms.get("Lessor Name", ""), vehicle_data.get("status") == "success")
         
         response = {
             "status": "success",
@@ -303,8 +358,8 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
             # Save main JSON output
             db.execute(text("""
                 INSERT INTO lease_documents 
-                (id, filename, request_id, full_output, fairness_score, fairness_level, risk_level)
-                VALUES (:id, :filename, :request_id, :full_output, :score, :level, :risk)
+                (id, filename, request_id, full_output, fairness_score, fairness_level, risk_level, user_id)
+                VALUES (:id, :filename, :request_id, :full_output, :score, :level, :risk, :uid)
             """), {
                 "id": lease_id,
                 "filename": filename,
@@ -312,7 +367,8 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
                 "full_output": json.dumps(response),
                 "score": analysis.get("contract_fairness_score"),
                 "level": analysis.get("contract_fairness_level"),
-                "risk": analysis.get("risk_level")
+                "risk": analysis.get("risk_level"),
+                "uid": user_id
             })
 
             # Save OCR text
@@ -340,6 +396,7 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
                 })
 
             db.commit()
+            print(f"✓ Results saved to database (ID: {lease_id})")
 
         except Exception as db_error:
             print(f"Database save error: {str(db_error)}")
@@ -348,16 +405,14 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
         finally:
             db.close()
         
-        # 6. Save user output
-        base_name = os.path.splitext(filename)[0]
-        output_file = os.path.join(OUTPUT_DIR, f"{base_name}_{request_id}.json")
+        # 6. File output disabled as per request
+        # base_name = os.path.splitext(filename)[0]
+        # output_file = os.path.join(OUTPUT_DIR, f"{base_name}_{request_id}.json")
         
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(response, f, indent=2, ensure_ascii=False)
+        # with open(output_file, "w", encoding="utf-8") as f:
+        #     json.dump(response, f, indent=2, ensure_ascii=False)
         
-        print(f"✓ Results saved to: {output_file}")
-        print(f"✓ Vehicle cache: vehicle_cache/ folder")
-        print(f"✓ OCR text: {ocr_path}")
+        # print(f"✓ Results saved to: {output_file}")
         print(f"✓ Final score: {analysis.get('contract_fairness_score')}/100 ({analysis.get('contract_fairness_level')})")
         print(f"✓ Risk level: {analysis.get('risk_level')}")
         print(f"✓ Total processing time: {response['processing_latency']['total_seconds']:.2f} seconds")
@@ -376,11 +431,19 @@ async def analyze_lease_document(file_bytes: bytes, filename: str) -> Dict[str, 
             "error_type": type(e).__name__
         }
 
-def check_blacklist_status(vin: str, lessor_name: str) -> Dict[str, Any]:
+def check_blacklist_status(vin: str, lessor_name: str, verified: bool = True) -> Dict[str, Any]:
     """Check if VIN or lessor is in blacklist (simulated)"""
     # In a real system, you'd query a database
-    # This is a simulation with example blacklist data
     
+    # If vehicle could not be verified by API, we can't definitively say it's "clean"
+    if not verified or vin == "Not Found" or len(vin) < 10:
+        return {
+            "vin_blacklisted": False,
+            "lessor_blacklisted": False,
+            "overall_status": "unverified",
+            "blacklist_reason": "Vehicle identity could not be confirmed by API"
+        }
+
     blacklisted_vins = [
         "5FNRL38689B123456",  # Example blacklisted VIN
         "1G1ZD5ST5JF123456",  # Example blacklisted VIN
@@ -448,7 +511,7 @@ def generate_recommendations(analysis: Dict, contract_data: Dict, vehicle_data: 
 @app.get("/")
 async def root():
     return {
-        "service": "Car Lease Analyzer Pro",
+        "service": "Car Lease Analyzer",
         "version": "3.1",
         "status": "active",
         "features": [
@@ -468,17 +531,147 @@ async def root():
         }
     }
 
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/register")
+async def register(auth: AuthRequest):
+    db = SessionLocal()
+    try:
+        # Check if user exists
+        exists = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": auth.username}).fetchone()
+        if exists:
+            raise HTTPException(400, detail="Username already exists")
+            
+        user_id = str(uuid.uuid4())
+        pwd_hash = hash_password(auth.password)
+        
+        db.execute(text("INSERT INTO users (id, username, password_hash) VALUES (:id, :u, :p)"),
+                   {"id": user_id, "u": auth.username, "p": pwd_hash})
+        db.commit()
+        return {"status": "success", "user_id": user_id, "username": auth.username}
+    except Exception as e:
+        db.rollback()
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(500, detail=str(e))
+    finally:
+        db.close()
+
+@app.post("/login")
+async def login(auth: AuthRequest):
+    db = SessionLocal()
+    try:
+        user = db.execute(text("SELECT id, password_hash FROM users WHERE username = :u"), {"u": auth.username}).fetchone()
+        if not user:
+            raise HTTPException(401, detail="Invalid username or password")
+            
+        if not verify_password(user[1], auth.password):
+            raise HTTPException(401, detail="Invalid username or password")
+            
+        return {"status": "success", "user_id": user[0], "username": auth.username}
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(500, detail=str(e))
+    finally:
+        db.close()
+
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.datetime.now().isoformat(),
         "system": {
-            "output_dir": OUTPUT_DIR,
-            "cache_dir": "vehicle_cache",
+            "storage_type": "database_only",
             "max_file_size": f"{MAX_FILE_SIZE / (1024*1024):.1f} MB"
         }
     }
+
+@app.get("/history")
+async def get_history(user_id: str | None = None):
+    """Get list of past analyses from database"""
+    db = SessionLocal()
+    try:
+        query = "SELECT id, filename, created_at, fairness_score, fairness_level, risk_level FROM lease_documents "
+        params = {}
+        if user_id:
+            query += " WHERE user_id = :u "
+            params["u"] = user_id
+        query += " ORDER BY created_at DESC"
+        
+        results = db.execute(text(query), params).fetchall()
+        
+        history = []
+        for row in results:
+            history.append({
+                "id": str(row[0]),
+                "filename": row[1],
+                "date": row[2].isoformat(),
+                "score": row[3],
+                "level": row[4],
+                "risk": row[5]
+            })
+        return history
+    except Exception as e:
+        raise HTTPException(500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/history/{item_id}")
+async def get_history_detail(item_id: str):
+    """Get full JSON output for a specific analysis from database"""
+    db = SessionLocal()
+    try:
+        result = db.execute(text("SELECT full_output FROM lease_documents WHERE id = :id"), {"id": item_id}).fetchone()
+        if not result:
+            raise HTTPException(404, detail="Analysis not found")
+        return result[0]
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+@app.get("/history/{item_id}/ocr")
+async def get_ocr_text(item_id: str):
+    """Get raw OCR text for a specific analysis from database"""
+    db = SessionLocal()
+    try:
+        # Note: item_id is the lease_id
+        result = db.execute(text("SELECT extracted_text FROM lease_ocr_text WHERE lease_id = :id"), {"id": item_id}).fetchone()
+        if not result:
+            raise HTTPException(404, detail="OCR text not found")
+        return {"ocr_text": result[0]}
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
+
+@app.delete("/history/{item_id}")
+async def delete_history_item(item_id: str):
+    """Delete a specific analysis record and its associated data"""
+    db = SessionLocal()
+    try:
+        # Check if exists
+        result = db.execute(text("SELECT id FROM lease_documents WHERE id = :id"), {"id": item_id}).fetchone()
+        if not result:
+            raise HTTPException(404, detail="Analysis not found")
+            
+        # Delete associated OCR text first (if any)
+        db.execute(text("DELETE FROM lease_ocr_text WHERE lease_id = :id"), {"id": item_id})
+        
+        # Delete the main document record
+        db.execute(text("DELETE FROM lease_documents WHERE id = :id"), {"id": item_id})
+        
+        db.commit()
+        return {"status": "success", "message": "Record deleted successfully"}
+    except Exception as e:
+        db.rollback()
+        if isinstance(e, HTTPException): raise e
+        raise HTTPException(500, detail=f"Database error: {str(e)}")
+    finally:
+        db.close()
 
 @app.get("/stats")
 async def get_stats():
@@ -619,7 +812,7 @@ Give a clear, helpful answer. If info is not in the data, say so."""
 
 
 @app.post("/analyze")
-async def analyze_lease(pdf: UploadFile = File(...)):
+async def analyze_lease(pdf: UploadFile = File(...), user_id: str | None = None):
     """Main endpoint - upload PDF lease agreement"""
     if not pdf.filename.endswith('.pdf'):
         raise HTTPException(400, detail="Only PDF files supported")
@@ -632,7 +825,7 @@ async def analyze_lease(pdf: UploadFile = File(...)):
     if len(file_bytes) < 100:  # Too small to be a valid PDF
         raise HTTPException(400, detail="File too small or corrupted")
     
-    result = await analyze_lease_document(file_bytes, pdf.filename)
+    result = await analyze_lease_document(file_bytes, pdf.filename, user_id)
     
     if result.get("status") == "error":
         raise HTTPException(400, detail=result.get("error", "Processing failed"))
@@ -641,7 +834,7 @@ async def analyze_lease(pdf: UploadFile = File(...)):
 
 if __name__ == "__main__":
     print(f"""
-    🚗 Car Lease Analyzer Pro v3.1
+    🚗 Car Lease Analyzer v3.1
     ================================
     📍 Starting on: http://{APP_HOST}:{APP_PORT}
     📁 Output folder: {OUTPUT_DIR}
