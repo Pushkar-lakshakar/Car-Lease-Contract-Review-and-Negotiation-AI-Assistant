@@ -38,96 +38,97 @@ def extract_with_gemini(ocr_text: str) -> Dict[str, str]:
 
     clean_text = ocr_text[:15000]
 
-    prompt = f"""EXTRACT ALL FIELDS from this car lease agreement:
+    prompt = f"""
+ROLE: You are an expert legal document analyzer specializing in car lease agreements.
 
-Look for these specific fields (return "Not Found" if not present):
+TASK: EXTRACT SPECIFIC DATA from the provided document text into a structured JSON format.
 
-=== PARTIES & VEHICLE DETAILS ===
-1. Lessor Name (who owns the car/company name)
-2. Lessee Name (who is renting/individual or company)
-3. Lessor Address
-4. Lessee Address
-5. Vehicle Make (e.g., Toyota, Honda, etc.)
-6. Vehicle Model (e.g., Corolla Altis, Civic)
-7. Vehicle Year (e.g., 2024)
-8. Vehicle VIN (17-character number)
-9. License Plate Number
-10. Vehicle Color
-11. Engine Number
-12. Chassis Number
-13. Odometer Reading at Start
+CRITICAL INSTRUCTIONS:
+1. DISTINGUISH BETWEEN LABELS AND DATA: 
+   - Many documents have headers like "1. Lessee Name" followed by the actual name on the next line. 
+   - DO NOT extract the label/header itself (e.g., "AGREES TO LEASE" or "LESSEE NAME").
+   - DO EXTRACT the specific entity/value associated with that label (e.g., "Emily Carter").
+2. IGNORE BOILERPLATE: Ignore legal definitions and boilerplate sentences unless they contain the specific data point.
+3. DATA COMPLETENESS: If a field is present, extract it exactly. If not found, return "Not Found".
+4. CURRENCY & FORMATS: 
+   - Include currency symbols (₹, $, etc.) for all financial amounts.
+   - For dates, use the format found in the document (e.g., "01 January 2025").
 
-=== FINANCIAL TERMS ===
-14. Monthly Rental (amount with currency)
-15. Security Deposit (amount with currency)
-16. Advance Payment (if any)
-17. Down Payment
-18. Lease Term Duration (e.g., 36 months)
-19. Lease Start Date
-20. Lease End Date
-21. Payment Due Day (e.g., 5th of each month)
-22. Late Payment Fee/Percentage
-23. Early Termination Fee/Conditions
-24. Purchase Option Price (at lease end)
-25. Residual Value (estimated value at lease end)
-26. Interest Rate/ Money Factor (if mentioned)
-27. Processing Fees/Administrative Charges
+=== FIELDS TO EXTRACT ===
 
-=== MILEAGE & USAGE ===
-28. Annual Mileage Limit
-29. Excess Mileage Charge (per km/mile)
-30. Total Allowed Mileage
-31. Kilometer/Mileage at Delivery
+--- PARTIES ---
+- "Lessor Name": The company or individual owning/leasing the vehicle (e.g., "Michael Roberts").
+- "Lessee Name": The person or entity renting the vehicle (e.g., "Emily Carter").
+- "Lessor Address": Full physical address of the Lessor.
+- "Lessee Address": Full physical address of the Lessee.
 
-=== INSURANCE & MAINTENANCE ===
-32. Insurance Requirements (type and amount)
-33. Insurance Provider (if specified)
-34. Maintenance Responsibility (Lessor/Lessee)
-35. Routine Maintenance Included (Yes/No)
-36. Tire Replacement Responsibility
-37. Battery Replacement Terms
-38. Warranty Coverage Details
+--- VEHICLE ---
+- "Vehicle Make": e.g., Toyota, Honda.
+- "Vehicle Model": e.g., Corolla Altis, Civic.
+- "Vehicle Year": e.g., 2024.
+- "Vehicle VIN": 17-character alpha-numeric string.
+- "License Plate Number": Registration number.
+- "Vehicle Color": External color.
+- "Engine Number": Unique engine identifier.
+- "Chassis Number": Often same as VIN.
+- "Odometer Reading at Start": Starting mileage.
 
-=== TAXES & FEES ===
-39. Road Tax Responsibility
-40. Registration Fees Responsibility
-41. Goods and Services Tax (GST) Details
-42. Tax Identification Numbers
+--- FINANCIALS ---
+- "Monthly Rental": The recurring payment amount.
+- "Security Deposit": Refundable deposit amount.
+- "Advance Payment": Any amount paid upfront.
+- "Down Payment": Initial lump sum.
+- "Lease Term Duration": Total length (e.g., "36 months").
+- "Lease Start Date": Date the lease begins.
+- "Lease End Date": Date the lease ends.
+- "Payment Due Day": e.g., "1st of each month".
+- "Late Payment Fee/Percentage": Penalty for late rent.
+- "Early Termination Fee/Conditions": Cost to end lease early.
+- "Purchase Option Price": Buy-out price at end of term.
+- "Residual Value": Estimated value at term end.
+- "Interest Rate/ Money Factor": if mentioned.
+- "Processing Fees/Administrative Charges": Any setup fees.
 
-=== CONDITION & RETURN ===
-43. Wear and Tear Allowance
-44. Vehicle Return Condition Requirements
-45. Disposition Fee (at lease end)
-46. Excess Wear and Tear Charges
-47. Cleaning Charges on Return
+--- USAGE ---
+- "Annual Mileage Limit": Max km/miles allowed per year.
+- "Excess Mileage Charge": Cost per km/mile over limit.
+- "Total Allowed Mileage": Cap for entire duration.
+- "Kilometer/Mileage at Delivery": Odometer at start.
 
-=== OTHER TERMS ===
-48. Permitted Use (Personal/Commercial)
-49. Geographic Restrictions (if any)
-50. Subleasing Allowed (Yes/No)
-51. Right of First Refusal
-52. Default Conditions
-53. Arbitration Clause (Present/Not Present)
-54. Jurisdiction/Governing Law
-55. Signing Date
-56. Witness Details
-57. Notary Details
+--- INSURANCE & MAINTENANCE ---
+- "Insurance Requirements": Required coverages.
+- "Insurance Provider": Name of insurance company.
+- "Maintenance Responsibility": Who pays for repairs (Lessor/Lessee).
+- "Routine Maintenance Included": Yes/No.
+- "Tire Replacement Responsibility": Lessor/Lessee.
+- "Battery Replacement Terms": Replacement conditions.
+- "Warranty Coverage Details": Manufacturer or dealer warranty.
 
-Return ONLY a JSON object with these exact field names.
-For currency amounts, include the symbol if present (₹, $, €, etc.).
-For dates, use DD/MM/YYYY or MM/DD/YYYY format as in document.
+--- TAXES & COMPLIANCE ---
+- "Road Tax Responsibility": Lessor/Lessee.
+- "Registration Fees Responsibility": Lessor/Lessee.
+- "Goods and Services Tax (GST) Details": Any tax specifics.
+- "Tax Identification Numbers": PAN, GSTIN, Aadhaar mentioned.
 
-Document Text:
+--- CLOSING ---
+- "Signing Date": Date document was signed.
+- "Jurisdiction/Governing Law": Governing state/country laws.
+- "Arbitration Clause": Present/Not Present.
+
+RETURN ONLY VALID JSON.
+
+DOCUMENT TEXT:
 {clean_text}
 """
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.0-flash",
             contents=[prompt],
             generation_config={
-                "temperature": 0.1,
+                "temperature": 0.0,
                 "max_output_tokens": 2000,
+                "response_mime_type": "application/json"
             }
         )
 
