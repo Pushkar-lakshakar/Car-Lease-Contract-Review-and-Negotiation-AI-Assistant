@@ -45,6 +45,6 @@ CACHE_EXPIRY_DAYS = 7
 # Set to True to force API refresh (comment out to use cache)
 FORCE_API_REFRESH = False
 
-# Additional vehicle APIs (optional)
+# Additional vehicle APIs 
 EDMUNDS_API_KEY = os.getenv("EDMUNDS_API_KEY", "")
 KBB_API_KEY = os.getenv("KBB_API_KEY", "")
