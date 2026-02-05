@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'chatbot_service.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'history_page.dart';
+import 'login_page.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final Map<String, dynamic>? initialData;
+  const DashboardPage({super.key, this.initialData});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -16,6 +20,15 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // ✅ CHAT SERVICE
   final ChatbotService _chatService = ChatbotService();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialData != null) {
+      analysisResult = widget.initialData;
+      _chatService.setContractContext(widget.initialData!);
+    }
+  }
 
   Future<void> _uploadFile() async {
     final picked = await FilePicker.platform.pickFiles(
@@ -76,21 +89,33 @@ class _DashboardPageState extends State<DashboardPage> {
             colors: [Color(0xFFEEF2FF), Color(0xFFF8FAFC), Color(0xFFE0E7FF)],
           ),
         ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1400),
-            child: Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 1000;
+            
+            return Padding(
               padding: const EdgeInsets.all(24),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 3, child: _buildMainContent()),
-                  const SizedBox(width: 24),
-                  SizedBox(width: 380, child: _buildAssistantPanel()),
-                ],
-              ),
-            ),
-          ),
+              child: isNarrow 
+                ? ListView( // Vertical stack on narrow screens
+                    children: [
+                      _buildMainContent(),
+                      const SizedBox(height: 24),
+                      _buildAssistantPanel(),
+                    ],
+                  )
+                : Row( // Side-by-side on wide screens
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 3, child: _buildMainContent()),
+                      const SizedBox(width: 24),
+                      SizedBox(
+                        width: 380,
+                        child: _buildAssistantPanel(),
+                      ),
+                    ],
+                  ),
+            );
+          },
         ),
       ),
     );
@@ -137,28 +162,97 @@ class _DashboardPageState extends State<DashboardPage> {
             child: const Icon(Icons.auto_awesome_motion,
                 size: 40, color: Colors.white),
           ),
-          const SizedBox(width: 20),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Car Lease Analyzer Pro",
-                style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -0.5),
+          const SizedBox(width: 28),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text(
+                  "Car Lease Analyzer",
+                  style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: -0.5),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  "AI-Powered Contract Intelligence & Verification",
+                  style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Spacer(),
+          if (ApiService.currentUsername != null)
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      const Icon(Icons.person_pin, color: Colors.white70, size: 20),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          "Hi, ${ApiService.currentUsername}",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      ApiService.logout();
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (context) => const LoginPage()),
+                        (route) => false,
+                      );
+                    },
+                    icon: const Icon(Icons.logout, size: 16),
+                    label: const Text("Logout"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.2),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(height: 6),
-              Text(
-                "AI-Powered Contract Intelligence & Verification",
-                style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500),
+            ),
+          const SizedBox(width: 24),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryPage()),
+              );
+            },
+            icon: const Icon(Icons.history),
+            label: const Text("View History"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF4F46E5),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-            ],
-          )
+            ),
+          ),
         ],
       ),
     );
@@ -436,17 +530,22 @@ class _DashboardPageState extends State<DashboardPage> {
     final visibleChildren = children.whereType<Widget>().toList();
     if (visibleChildren.isEmpty) return const SizedBox.shrink();
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        mainAxisExtent: 100, // Increased to 100 to prevent overflow on long text
-      ),
-      itemCount: visibleChildren.length,
-      itemBuilder: (context, index) => visibleChildren[index],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Switch to 1 column on narrow containers
+        final columnCount = constraints.maxWidth < 400 ? 1 : 2;
+        final spacing = 12.0;
+        final itemWidth = (constraints.maxWidth - (spacing * (columnCount - 1))) / columnCount;
+        
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: visibleChildren.map((child) => SizedBox(
+            width: itemWidth,
+            child: child,
+          )).toList(),
+        );
+      }
     );
   }
 
@@ -468,6 +567,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, // Allow box to shrink/expand
         children: [
           Text(label,
               style: TextStyle(
@@ -476,8 +576,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   color: Colors.indigo.shade400)),
           const SizedBox(height: 4),
           Text(valStr,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
@@ -650,19 +748,23 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: const Icon(Icons.psychology, color: Colors.white),
                 ),
                 const SizedBox(width: 12),
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("AI Assistant",
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16)),
-                    Text("Ask about your contract",
-                        style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12)),
-                  ],
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("AI Assistant",
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16),
+                          overflow: TextOverflow.ellipsis),
+                      Text("Ask about your contract",
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12),
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -727,12 +829,21 @@ class _DashboardPageState extends State<DashboardPage> {
                                 offset: const Offset(0, 2))
                         ],
                       ),
-                      child: Text(
-                        msg.text,
-                        style: TextStyle(
-                          color: isUser ? Colors.white : Colors.indigo.shade900,
-                          fontSize: 14,
-                          height: 1.4,
+                      child: MarkdownBody(
+                        data: msg.text,
+                        styleSheet: MarkdownStyleSheet(
+                          p: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
+                          strong: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          listBullet: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                          ),
                         ),
                       ),
                     ),
