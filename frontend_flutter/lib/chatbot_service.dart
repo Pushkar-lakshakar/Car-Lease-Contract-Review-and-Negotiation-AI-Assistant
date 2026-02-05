@@ -168,3 +168,4 @@ class ChatbotService {
         "${financial["monthly_rental"] ?? "N/A"}/month";
   }
 }
+
