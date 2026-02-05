@@ -4,7 +4,9 @@ import re
 import requests
 import time  # Add for latency measurement
 from datetime import datetime, timedelta
-from Backend.config import CACHE_DIR, RAPIDAPI_KEY, VEHICLE_API_BASE_URL, VEHICLE_API_HOST, FORCE_API_REFRESH, CACHE_EXPIRY_DAYS
+from Backend.config import RAPIDAPI_KEY, VEHICLE_API_BASE_URL, VEHICLE_API_HOST, FORCE_API_REFRESH, CACHE_EXPIRY_DAYS
+from Backend.database import SessionLocal
+from sqlalchemy import text
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,31 +31,27 @@ def get_vehicle_details(vin: str) -> dict:
         logger.warning(f"Invalid VIN length: {vin} (length: {len(vin)})")
         return {"status": "invalid_vin", "vin": vin, "error": f"Invalid VIN length: {len(vin)} (should be 17)"}
     
-    # 1. Check cache first (unless forced refresh)
-    cache_file = os.path.join(CACHE_DIR, f"{vin}.json")
+    # 1. Check database cache first (unless forced refresh)
     api_latency_ms = 0
     
-    if not FORCE_API_REFRESH and os.path.exists(cache_file):
+    if not FORCE_API_REFRESH:
+        db = SessionLocal()
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                cached_data = json.load(f)
-            
-            # Check if cache is expired
-            cache_time_str = cached_data.get("_cache", {}).get("saved_at", "")
-            if cache_time_str:
-                cache_time = datetime.fromisoformat(cache_time_str)
-                if datetime.now() - cache_time < timedelta(days=CACHE_EXPIRY_DAYS):
-                    logger.info(f"Using cached data for VIN: {vin}")
+            result = db.execute(text("SELECT api_response, cached_at FROM vehicle_api_cache WHERE vin = :vin"), {"vin": vin}).fetchone()
+            if result:
+                cached_data, cached_at = result
+                # Check if cache is expired
+                if datetime.now() - cached_at < timedelta(days=CACHE_EXPIRY_DAYS):
+                    logger.info(f"Using database cached data for VIN: {vin}")
                     cached_data["cache_hit"] = True
-                    cached_data["api_latency_ms"] = 0  # Cache hit, no API call
+                    cached_data["api_latency_ms"] = 0
                     return cached_data
-            else:
-                logger.info("Cache has no timestamp, using it anyway")
-                cached_data["cache_hit"] = True
-                cached_data["api_latency_ms"] = 0  # Cache hit, no API call
-                return cached_data
+                else:
+                    logger.info("Database cache expired")
         except Exception as e:
-            logger.warning(f"Cache read failed for {vin}: {e}")
+            logger.warning(f"Database cache read failed for {vin}: {e}")
+        finally:
+            db.close()
     
     # 2. Call API (only if no cache or forced refresh)
     logger.info(f"Calling API for VIN: {vin}")
@@ -185,13 +183,26 @@ def get_vehicle_details(vin: str) -> dict:
                 "cache_hit": False
             }
             
-            # 3. Save to cache file
+            # 3. Save to database cache
+            db = SessionLocal()
             try:
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump(result, f, indent=2, ensure_ascii=False)
-                logger.info(f"API response saved to cache: {cache_file}")
+                db.execute(text("""
+                    INSERT INTO vehicle_api_cache (vin, api_response)
+                    VALUES (:vin, :response)
+                    ON CONFLICT (vin) DO UPDATE
+                    SET api_response = EXCLUDED.api_response,
+                        cached_at = CURRENT_TIMESTAMP
+                """), {
+                    "vin": vin,
+                    "response": json.dumps(result)
+                })
+                db.commit()
+                logger.info(f"API response saved to database cache for VIN: {vin}")
             except Exception as e:
-                logger.error(f"Failed to save cache: {e}")
+                logger.error(f"Failed to save to database cache: {e}")
+                db.rollback()
+            finally:
+                db.close()
             
             return result
             
