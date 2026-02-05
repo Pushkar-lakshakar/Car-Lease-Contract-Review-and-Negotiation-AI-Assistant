@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
 import 'dashboard_page.dart';
+import 'login_page.dart';
 
 void main() {
   runApp(const CarLeaseApp());
@@ -15,7 +16,7 @@ class CarLeaseApp extends StatelessWidget {
       title: 'Car Contract Analyzer',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const DashboardPage(),
+      home: const LoginPage(),
     );
   }
 }
