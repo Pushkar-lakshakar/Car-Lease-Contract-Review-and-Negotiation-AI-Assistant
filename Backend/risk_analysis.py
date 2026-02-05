@@ -316,6 +316,11 @@ def analyze_vehicle_mismatch(contract_data: Dict, vehicle_data: Dict) -> Dict:
                     red_flags.append(f"VEHICLE TOO OLD FOR LEASING: {age} years old (manufactured {api_year})")
             except:
                 pass
+    else:
+        # CRITICAL: Vehicle could not be verified
+        score_adj -= 35
+        red_flags.append("CRITICAL: UNVERIFIED VEHICLE - VIN could not be verified by external API. This is a MAJOR security risk.")
+        red_flags.append("Warning: Signing a contract with an unverified VIN may indicate a cloned vehicle or fraudulent document.")
     
     # If we have serious mismatches, add a comprehensive red flag
     if mismatches:
