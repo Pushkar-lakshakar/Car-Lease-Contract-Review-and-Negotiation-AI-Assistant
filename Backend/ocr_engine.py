@@ -7,12 +7,8 @@ pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
 def run_ocr(pdf_bytes: bytes, original_filename: str) -> str:
     """
-    Save OCR text to: project_output/<pdf_name>.txt
+    Returns extracted text directly (storage handled by main.py in DB)
     """
-    base_name = os.path.splitext(original_filename)[0]
-    txt_filename = f"{base_name}.txt"
-    txt_path = os.path.join(OUTPUT_DIR, txt_filename)
-
     print(f"OCR processing: {original_filename}")
 
     try:
@@ -23,14 +19,9 @@ def run_ocr(pdf_bytes: bytes, original_filename: str) -> str:
             text = pytesseract.image_to_string(page)
             combined_text += f"\n--- Page {page_num} ---\n{text}"
 
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(combined_text)
-
-        print(f"OCR saved: {txt_path}")
-        return txt_path
+        return combined_text
 
     except Exception as e:
         print(f"OCR error: {str(e)}")
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(f"OCR_ERROR: {str(e)}")
-        return txt_path
+        return f"OCR_ERROR: {str(e)}"
+
