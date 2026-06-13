@@ -1,0 +1,46 @@
+2026-01-27 01:08:49,987 - main - INFO - Starting Car Lease Analysis API
+2026-01-27 01:08:49,988 - main - INFO - Output directory: D:\infosys springboard\car lease gemini\project_output
+2026-01-27 01:08:49,988 - main - INFO - Logs directory: D:\infosys springboard\car lease gemini\logs
+2026-01-27 01:12:59,198 - main - INFO - Shutting down Car Lease Analysis API
+2026-01-27 01:13:21,156 - main - INFO - Starting Car Lease Analysis API
+2026-01-27 01:13:21,157 - main - INFO - Output directory: D:\infosys springboard\car lease gemini\project_output
+2026-01-27 01:13:21,157 - main - INFO - Logs directory: D:\infosys springboard\car lease gemini\logs
+2026-01-27 01:15:37,744 - main - INFO - Shutting down Car Lease Analysis API
+2026-01-27 01:15:42,055 - main - INFO - Starting Car Lease Analysis API
+2026-01-27 01:15:42,055 - main - INFO - Output directory: D:\infosys springboard\car lease gemini\project_output
+2026-01-27 01:15:42,055 - main - INFO - Logs directory: D:\infosys springboard\car lease gemini\logs
+2026-01-27 01:16:47,155 - main - INFO - [11211535] Received request for file: CAR LEASE AGREEMENT.pdf
+2026-01-27 01:16:47,156 - main - INFO - [11211535] Starting processing: CAR LEASE AGREEMENT.pdf
+2026-01-27 01:16:47,729 - main - INFO - [11211535] Starting OCR processing
+2026-01-27 01:17:01,908 - main - INFO - [11211535] Starting SLA extraction
+2026-01-27 01:17:01,910 - google_genai.models - INFO - AFC is enabled with max remote calls: 10.
+2026-01-27 01:17:10,856 - httpx - INFO - HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-01-27 01:17:10,859 - main - INFO - [11211535] Extracting VIN
+2026-01-27 01:17:10,862 - main - INFO - [11211535] Looking up vehicle details for VIN: PA6E1CARLEA5EA6RE
+2026-01-27 01:17:11,516 - main - INFO - [11211535] Performing risk analysis
+2026-01-27 01:17:11,518 - main - INFO - [11211535] Processing completed successfully in 24.36 seconds
+2026-01-27 01:17:37,681 - main - INFO - [da66d8df] Legacy endpoint called for file: CAR LEASE AGREEMENT.pdf
+2026-01-27 01:17:37,683 - main - INFO - [da66d8df] Starting processing: CAR LEASE AGREEMENT.pdf
+2026-01-27 01:17:38,212 - main - INFO - [da66d8df] Starting OCR processing
+2026-01-27 01:17:50,118 - main - INFO - [da66d8df] Starting SLA extraction
+2026-01-27 01:17:50,119 - google_genai.models - INFO - AFC is enabled with max remote calls: 10.
+2026-01-27 01:17:59,238 - httpx - INFO - HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-01-27 01:17:59,241 - main - INFO - [da66d8df] Extracting VIN
+2026-01-27 01:17:59,242 - main - INFO - [da66d8df] Looking up vehicle details for VIN: PA6E1CARLEA5EA6RE
+2026-01-27 01:17:59,877 - main - INFO - [da66d8df] Performing risk analysis
+2026-01-27 01:17:59,881 - main - INFO - [da66d8df] Processing completed successfully in 22.19 seconds
+2026-01-27 01:19:09,941 - main - INFO - Shutting down Car Lease Analysis API
+2026-01-27 17:19:29,803 - main - INFO - Starting Car Lease Analysis API
+2026-01-27 17:19:29,805 - main - INFO - Output directory: D:\infosys springboard\car lease gemini\project_output
+2026-01-27 17:19:29,805 - main - INFO - Logs directory: D:\infosys springboard\car lease gemini\logs
+2026-01-27 17:21:36,779 - main - INFO - [21897d7e] Received request for file: CAR LEASE AGREEMENT.pdf
+2026-01-27 17:21:36,779 - main - INFO - [21897d7e] Starting processing: CAR LEASE AGREEMENT.pdf
+2026-01-27 17:21:37,362 - main - INFO - [21897d7e] Starting OCR processing
+2026-01-27 17:21:51,167 - main - INFO - [21897d7e] Starting SLA extraction
+2026-01-27 17:21:51,169 - google_genai.models - INFO - AFC is enabled with max remote calls: 10.
+2026-01-27 17:22:00,968 - httpx - INFO - HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-01-27 17:22:00,983 - main - INFO - [21897d7e] Extracting VIN
+2026-01-27 17:22:00,990 - main - INFO - [21897d7e] Looking up vehicle details for VIN: PA6E1CARLEA5EA6RE
+2026-01-27 17:22:01,955 - main - INFO - [21897d7e] Performing risk analysis
+2026-01-27 17:22:01,958 - main - INFO - [21897d7e] Processing completed successfully in 25.18 seconds
+2026-01-27 17:28:20,723 - main - INFO - Shutting down Car Lease Analysis API

@@ -1,0 +1,1402 @@
+import 'package:flutter/material.dart';
+import 'api_service.dart';
+import 'chatbot_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'history_page.dart';
+import 'login_page.dart';
+import 'negotiation_chat_page.dart';
+import 'comparison_page.dart';
+import 'negotiation_list_page.dart'; // Added this import
+
+class DashboardPage extends StatefulWidget {
+  final Map<String, dynamic>? initialData;
+  const DashboardPage({super.key, this.initialData});
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  Map<String, dynamic>? analysisResult;
+  bool isLoading = false;
+  String? _error; // Added this variable
+
+  // ✅ CHAT SERVICE
+  final ChatbotService _chatService = ChatbotService();
+
+  // MY NEGOTIATIONS VARIABLES (Removed as per instruction)
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialData != null) {
+      analysisResult = widget.initialData;
+      _chatService.setContractContext(widget.initialData!);
+    }
+  }
+
+  Future<void> _uploadFile() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      withData: true,
+    );
+
+    if (picked == null || picked.files.single.bytes == null) return;
+
+    setState(() => isLoading = true);
+
+    try {
+      final response = await ApiService.analyzePdf(
+        picked.files.single.bytes!,
+        picked.files.single.name,
+      );
+
+      setState(() {
+        analysisResult = response;
+        isLoading = false;
+        _error = null; // Clear any previous errors
+        // Feed contract data to chatbot for context
+        _chatService.setContractContext(response);
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        _error = e.toString(); // Set error message
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    }
+  }
+
+  // ✅ CHAT SEND FUNCTION
+  final TextEditingController _chatController = TextEditingController();
+
+  Future<void> _sendChatMessage() async {
+    final message = _chatController.text.trim();
+    if (message.isEmpty) return;
+
+    _chatController.clear();
+    setState(() {}); // Trigger rebuild to show user message
+
+    try {
+      await _chatService.sendMessage(message);
+      setState(() {}); // Trigger rebuild to show AI response
+    } catch (e) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFEEF2FF), Color(0xFFF8FAFC), Color(0xFFE0E7FF)],
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 1000;
+            
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: isNarrow 
+                ? ListView( // Vertical stack on narrow screens
+                    children: [
+                      _buildMainContent(),
+                      const SizedBox(height: 24),
+                      _buildAssistantPanel(),
+                    ],
+                  )
+                : Row( // Side-by-side on wide screens
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 3, child: _buildMainContent()),
+                      const SizedBox(width: 24),
+                      SizedBox(
+                        width: 380,
+                        child: _buildAssistantPanel(),
+                      ),
+                    ],
+                  ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainContent() {
+    return ListView(
+      children: [
+        _buildHeaderCard(),
+        const SizedBox(height: 32), // Changed spacing
+        isLoading ? _buildLoadingCard() : _buildActionButtons(),
+        const SizedBox(height: 24),
+        if (analysisResult != null) _buildResults(), // Changed condition
+        if (_error != null) _buildErrorCard(_error!), // Added error display
+      ],
+    );
+  }
+
+  // Loading card during contract processing
+  Widget _buildLoadingCard() {
+    return Container(
+      height: 180,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 50,
+              height: 50,
+              child: CircularProgressIndicator(
+                strokeWidth: 4,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              "Analyzing Contract...",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Extracting terms, verifying vehicle, and detecting risks",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withOpacity(0.8),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Three equal action buttons
+  Widget _buildActionButtons() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            // 1. Analyze PDF (Upload Only)
+            Expanded(
+              child: _buildActionButton(
+                icon: Icons.upload_file,
+                title: "Analyze PDF",
+                subtitle: "View Report",
+                gradientColors: [Color(0xFF4F46E5), Color(0xFF7C3AED)], // Purple
+                onTap: isLoading ? null : _analyzeOnly,
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // 2. Create Negotiation (From Analysis or New Upload)
+            Expanded(
+              child: _buildActionButton(
+                icon: Icons.add_box_rounded,
+                title: "Create Room",
+                subtitle: "Start Negotiation",
+                gradientColors: [Color(0xFF10B981), Color(0xFF059669)], // Green
+                onTap: isLoading ? null : _handleCreateRoomButton,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            // 3. Join Space
+            Expanded(
+              child: _buildActionButton(
+                icon: Icons.vpn_key_rounded,
+                title: "Join Space",
+                subtitle: "My Negotiations",
+                gradientColors: [Color(0xFF0EA5E9), Color(0xFF0284C7)], // Blue
+                onTap: () {
+                   Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NegotiationListPage()),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // 4. Compare Contracts
+            Expanded(
+              child: _buildActionButton(
+                icon: Icons.compare_arrows,
+                title: "Compare",
+                subtitle: "Side-by-Side",
+                gradientColors: [Color(0xFF6366F1), Color(0xFF4338CA)], // Indigo
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const HistoryPage(isSelectionMode: true),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<Color> gradientColors,
+    VoidCallback? onTap,
+  }) {
+    final isDisabled = onTap == null;
+    
+    return Container(
+      height: 180,
+      decoration: BoxDecoration(
+        gradient: isDisabled
+            ? LinearGradient(
+                colors: [Colors.grey.shade300, Colors.grey.shade400],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : LinearGradient(
+                colors: gradientColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: isDisabled
+                ? Colors.grey.shade200
+                : gradientColors[0].withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 32,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.8),
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderCard() {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4F46E5).withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.auto_awesome_motion,
+                size: 40, color: Colors.white),
+          ),
+          const SizedBox(width: 28),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text(
+                  "Car Lease Analyzer",
+                  style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: -0.5),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  "AI-Powered Contract Intelligence & Verification",
+                  style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Spacer(),
+          if (ApiService.currentUsername != null)
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      const Icon(Icons.person_pin, color: Colors.white70, size: 20),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          "Hi, ${ApiService.currentUsername}",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      ApiService.logout();
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (context) => const LoginPage()),
+                        (route) => false,
+                      );
+                    },
+                    icon: const Icon(Icons.logout, size: 16),
+                    label: const Text("Logout"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.2),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(width: 24),
+          if (ApiService.currentUserRole != 'dealer')
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryPage()),
+              );
+            },
+            icon: const Icon(Icons.history),
+            label: const Text("View History"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF4F46E5),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.indigo.shade50, width: 2),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.indigo.shade100.withOpacity(0.1),
+              blurRadius: 15,
+              offset: const Offset(0, 8))
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isLoading ? null : _uploadFile,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Column(
+              children: [
+                if (isLoading)
+                  Column(
+                    children: [
+                      const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(strokeWidth: 3)),
+                      const SizedBox(height: 20),
+                      Text("Analyzing Contract...",
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade900)),
+                      const SizedBox(height: 8),
+                      Text("Extracting terms, verifying vehicle, and detecting risks",
+                          style: TextStyle(color: Colors.indigo.shade400)),
+                    ],
+                  )
+                else
+                  Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.cloud_upload_rounded,
+                            size: 48, color: Colors.indigo.shade500),
+                      ),
+                      const SizedBox(height: 16),
+                      Text("Click to Upload Contract",
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.indigo.shade900)),
+                      const SizedBox(height: 8),
+                      Text("Supports PDF files up to 20MB",
+                          style: TextStyle(color: Colors.indigo.shade300)),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResults() {
+    final sla = analysisResult!["sla_fields"];
+    final verification = analysisResult!["vehicle_verification"];
+    final risk = analysisResult!["risk_analysis"];
+    final issues = analysisResult!["issues"];
+    final recommendations = analysisResult!["recommendations"];
+
+    final financial = sla["financial"] ?? {};
+    final usage = sla["usage"] ?? {};
+    final insurance = sla["insurance_maintenance"] ?? {};
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (analysisResult!["market_price_estimation"] != null) ...[
+           _buildPriceEstimation(analysisResult!["market_price_estimation"]),
+           const SizedBox(height: 24),
+        ],
+        _sectionTitle("Vehicle Details in Contract"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _infoGrid([
+              _infoTile("Lessor", sla["parties"]["lessor_name"]),
+              _infoTile("Lessee", sla["parties"]["lessee_name"]),
+              _infoTile("Lessor Address", sla["parties"]["lessor_address"]),
+              _infoTile("Lessee Address", sla["parties"]["lessee_address"]),
+            ]),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Vehicle Information"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _infoGrid([
+              _infoTile("Make", sla["vehicle"]["make"]),
+              _infoTile("Model", sla["vehicle"]["model"]),
+              _infoTile("Year", sla["vehicle"]["year"]),
+              _infoTile("VIN", sla["vehicle"]["vin"]),
+              _infoTile("Fuel", verification["api_values"]["fuel_type"]),
+              _infoTile("HP", verification["api_values"]["horsepower"]),
+            ]),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Vehicle Verification"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              children: [
+                _infoGrid([
+                  _infoTile("VIN Verified", verification["verified"]),
+                  _infoTile("Blacklist Status",
+                      verification["blacklist_status"]["overall_status"]),
+                  _infoTile("Details Available",
+                      verification["full_details_available"]),
+                ]),
+                const SizedBox(height: 12),
+                _infoGrid([
+                  _infoTile("VIN", verification["key_specs"]["vin"]),
+                  _infoTile("Make", verification["key_specs"]["make"]),
+                  _infoTile("Model", verification["key_specs"]["model"]),
+                  _infoTile("Year", verification["key_specs"]["year"]),
+                  _infoTile("Vehicle Type",
+                      verification["key_specs"]["vehicle_type"]),
+                  _infoTile("Fuel Type",
+                      verification["key_specs"]["fuel_type"]),
+                  _infoTile("Engine Size",
+                      verification["key_specs"]["engine_size"]),
+                  _infoTile("Horsepower",
+                      verification["key_specs"]["horsepower"]),
+                ]),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Financial Terms"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _infoGrid([
+              _infoTile("Monthly Rental", financial["monthly_rental"]),
+              _infoTile("Security Deposit", financial["security_deposit"]),
+              _infoTile("Lease Term", financial["lease_term"]),
+              _infoTile("Start Date", financial["start_date"]),
+              _infoTile("End Date", financial["end_date"]),
+              _infoTile("Payment Due", financial["payment_due_day"]),
+            ]),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Mileage & Usage"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _infoGrid([
+              _infoTile("Annual Limit", usage["annual_mileage"]),
+              _infoTile("Total Allowed", usage["total_mileage"]),
+              _infoTile("Excess Charge", usage["excess_charge"]),
+              _infoTile("Usage Type", usage["permitted_use"]),
+            ]),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Insurance & Maintenance"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _infoGrid([
+              _infoTile("Insurance Req", insurance["insurance_requirements"]),
+              _infoTile("Ins. Provider", insurance["insurance_provider"]),
+              _infoTile("Maintenance By", insurance["maintenance_responsibility"]),
+              _infoTile("Routine Maint.", insurance["routine_maintenance_included"]),
+            ]),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Analysis & Recommendations"),
+        _sectionContainer(
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                _flagCard("Red Flags", issues["red_flags"], Colors.red, Icons.report_problem_rounded),
+                if (issues["vehicle_mismatches"] != null && (issues["vehicle_mismatches"] as List).isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _flagCard("Vehicle Mismatches", issues["vehicle_mismatches"], Colors.orange, Icons.minor_crash_rounded),
+                ],
+                const SizedBox(height: 12),
+                _flagCard("Key Recommendations", recommendations, Colors.teal, Icons.lightbulb_rounded),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        _sectionTitle("Health Score"),
+        _healthScoreCard(risk),
+      ],
+    );
+  }
+
+  Widget _sectionContainer(Widget child) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.indigo.shade50),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.shade100.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 4),
+      child: Row(
+        children: [
+          Container(
+            height: 24,
+            width: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E1B4B))), // Indigo 900
+        ],
+      ),
+    );
+  }
+
+  Widget _infoGrid(List<Widget?> children) {
+    final visibleChildren = children.whereType<Widget>().toList();
+    if (visibleChildren.isEmpty) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Switch to 1 column on narrow containers
+        final columnCount = constraints.maxWidth < 400 ? 1 : 2;
+        final spacing = 12.0;
+        final itemWidth = (constraints.maxWidth - (spacing * (columnCount - 1))) / columnCount;
+        
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: visibleChildren.map((child) => SizedBox(
+            width: itemWidth,
+            child: child,
+          )).toList(),
+        );
+      }
+    );
+  }
+
+  Widget? _infoTile(String label, dynamic value) {
+    String valStr = value?.toString().trim() ?? "";
+    if (valStr.isEmpty ||
+        valStr.toLowerCase() == "not found" ||
+        valStr.toLowerCase() == "not specified" ||
+        valStr.toLowerCase() == "null") {
+      return null;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.indigo.shade50),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, // Allow box to shrink/expand
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.indigo.shade400)),
+          const SizedBox(height: 4),
+          Text(valStr,
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.blueGrey.shade800)),
+        ],
+      ),
+    );
+  }
+
+  Widget _flagCard(String title, List<dynamic> items, Color color, IconData icon) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, color: color, fontSize: 15)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...items.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Icon(Icons.circle, size: 6, color: color.withOpacity(0.5)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(e.toString(),
+                        style: TextStyle(
+                            fontSize: 13, 
+                            color: Colors.blueGrey.shade800,
+                            height: 1.4)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _healthScoreCard(Map<String, dynamic> risk) {
+    final score = risk["contract_fairness_score"] ?? 0;
+    final level = risk["contract_fairness_level"] ?? "UNKNOWN";
+
+    return _sectionContainer(
+      Padding(
+        padding: const EdgeInsets.all(24),
+        child: Row(
+          children: [
+            SizedBox(
+              height: 100,
+              width: 100,
+              child: Stack(
+                children: [
+                  Center(
+                    child: SizedBox(
+                      width: 100,
+                      height: 100,
+                      child: CircularProgressIndicator(
+                        value: score / 100,
+                        strokeWidth: 10,
+                        backgroundColor: Colors.indigo.shade50,
+                        color: _getScoreColor(score),
+                        strokeCap: StrokeCap.round,
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("$score",
+                            style: const TextStyle(
+                                fontSize: 24, fontWeight: FontWeight.bold)),
+                        const Text("Score", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Contract Health: $level",
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(
+                    _getScoreDescription(score),
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getScoreColor(int score) {
+    if (score >= 80) return const Color(0xFF10B981); // Emerald
+    if (score >= 60) return const Color(0xFFF59E0B); // Amber
+    return const Color(0xFFEF4444); // Red
+  }
+
+  String _getScoreDescription(int score) {
+    if (score >= 80) return "Excellent contract terms with low risk.";
+    if (score >= 60) return "Average contract with some points to review.";
+    return "High risk contract with multiple red flags.";
+  }
+
+  // ✅ CHAT UI
+  Widget _buildAssistantPanel() {
+    return Container(
+      height: 700,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.indigo.shade50),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.shade100.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Chat Header
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
+              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle),
+                  child: const Icon(Icons.psychology, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("AI Assistant",
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16),
+                          overflow: TextOverflow.ellipsis),
+                      Text("Ask about your contract",
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12),
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Chat Messages
+          Expanded(
+            child: Container(
+              color: const Color(0xFFF8FAFC),
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _chatService.messages.length + (_chatService.isLoading ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == _chatService.messages.length) {
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.indigo.shade50),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16, 
+                              height: 16, 
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.indigo.shade300)
+                            ),
+                            const SizedBox(width: 8),
+                            Text("Thinking...", style: TextStyle(color: Colors.indigo.shade300, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  final msg = _chatService.messages[index];
+                  final isUser = msg.isUser;
+                  return Align(
+                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 260),
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: isUser ? const Color(0xFF4F46E5) : Colors.white,
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: Radius.circular(isUser ? 16 : 4),
+                          bottomRight: Radius.circular(isUser ? 4 : 16),
+                        ),
+                        boxShadow: [
+                          if (!isUser)
+                            BoxShadow(
+                                color: Colors.indigo.shade100.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2))
+                        ],
+                      ),
+                      child: MarkdownBody(
+                        data: msg.text,
+                        styleSheet: MarkdownStyleSheet(
+                          p: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
+                          strong: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          listBullet: TextStyle(
+                            color: isUser ? Colors.white : Colors.indigo.shade900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+          // Input Area
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _chatController,
+                    onSubmitted: (_) => _sendChatMessage(),
+                    decoration: InputDecoration(
+                      hintText: "Type a question...",
+                      hintStyle: TextStyle(color: Colors.grey.shade400),
+                      filled: true,
+                      fillColor: const Color(0xFFF1F5F9),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFF4F46E5),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.send_rounded, size: 20),
+                    color: Colors.white,
+                    onPressed: _sendChatMessage,
+                  ),
+                ),
+              ],
+            ),
+          ), // Close Input Container
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // HELPER METHODS
+  // ==========================================
+
+  // HELPER METHODS REMOVED (_loadMyRooms, _renameRoom, _deleteRoom, _buildMyNegotiationsList)
+
+  Future<void> _analyzeOnly() async {
+    await _uploadFile();
+    // No further action needed; _uploadFile updates the UI with results
+  }
+
+  Future<void> _handleCreateRoomButton() async {
+    // If no analysis yet, show message
+    if (analysisResult == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please analyze a contract or select one from History first."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final TextEditingController nameController = TextEditingController(
+      text: analysisResult!['metadata']?['filename'] ?? "Negotiation"
+    );
+
+    // Confirm room creation and ask for name
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Create Negotiation Room"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Give your negotiation space a name:"),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: "Room Name",
+                hintText: "e.g., Honda Civic Lease",
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            const Text("This will generate a secure access code for you to share with the dealer.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, nameController.text.trim()),
+            child: const Text("Create Room"),
+          ),
+        ],
+      ),
+    );
+
+    if (name != null) { // name is empty string if they just clicked OK without typing, handled by backend fallback or we can enforce here
+      if (name.isEmpty) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Room name cannot be empty!")));
+         return;
+      }
+      _startNegotiation(name);
+    }
+  }
+
+  Future<void> _startNegotiation(String roomName) async {
+    final docId = analysisResult!["doc_id"] as String?;
+    if (docId == null) return;
+
+    try {
+      final result = await ApiService.createOrJoinRoom(leaseId: docId, name: roomName);
+      final roomId = result['room_id'] as String;
+      
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => NegotiationChatPage(
+            roomId: roomId,
+            leaseFilename: roomName, // Use the custom name
+          ),
+        ),
+      ); 
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to create room: $e")));
+    }
+  }
+
+  // _showJoinCodeDialog REMOVED
+  
+  Widget _buildErrorCard(String error) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              error,
+              style: TextStyle(color: Colors.red.shade800),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.red),
+            onPressed: () => setState(() => _error = null),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+  Widget _buildPriceEstimation(Map<String, dynamic> estimation) {
+    if (estimation["status"] != "success") return const SizedBox.shrink();
+
+    final minPrice = estimation["min_price"] ?? 0;
+    final maxPrice = estimation["max_price"] ?? 0;
+    final midpoint = estimation["midpoint"] ?? 0;
+    final confidence = estimation["confidence"] ?? "LOW";
+    final reasoning = estimation["reasoning"] ?? "";
+
+    Color confidenceColor;
+    switch (confidence) {
+      case "HIGH": confidenceColor = Colors.green; break;
+      case "MEDIUM": confidenceColor = Colors.orange; break;
+      default: confidenceColor = Colors.red;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.indigo.shade800, Colors.indigo.shade900],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.analytics_outlined, color: Colors.white, size: 28),
+              const SizedBox(width: 12),
+              const Text(
+                "Market Price Estimation",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  "AI ESTIMATE",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Estimated Range (INR)",
+                    style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "₹${minPrice.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} - ₹${maxPrice.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}",
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    "Confidence",
+                    style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: confidenceColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: confidenceColor.withOpacity(0.5)),
+                    ),
+                    child: Text(
+                      confidence,
+                      style: TextStyle(
+                        color: confidenceColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Divider(color: Colors.white24),
+          const SizedBox(height: 16),
+          Text(
+            "AI Reasoning Summary:",
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            reasoning,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
