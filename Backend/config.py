@@ -10,8 +10,15 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 # Paths
 
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-POPPLER_PATH = r"C:\poppler\Library\bin"
+TESSERACT_PATH = os.getenv(
+    "TESSERACT_PATH",
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
+
+POPPLER_PATH = os.getenv(
+    "POPPLER_PATH",
+    r"C:\poppler\Library\bin"
+)
 
 # Output Directories
 

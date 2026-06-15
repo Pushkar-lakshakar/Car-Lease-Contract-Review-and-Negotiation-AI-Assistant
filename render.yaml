@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: car-lease-backend
+    env: docker
+    plan: free
